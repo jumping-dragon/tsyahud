@@ -1,0 +1,107 @@
+version: '3'
+
+services:
+  traefik:
+    # The official v3 Traefik docker image
+    image: traefik:v3.0
+    # Enables the web UI and tells Traefik to listen to docker
+    command:
+      - --api.insecure=true
+      - --providers.docker
+      - --providers.docker.exposedbydefault=false
+      - --entrypoints.web.address=:80
+      - --entrypoints.websecure.address=:443
+      - --global.sendAnonymousUsage=false
+      - --certificatesresolvers.securelho.acme.tlschallenge=true
+        # - --certificatesresolvers.securelho.acme.caserver=https://acme-staging-v02.api.letsencrypt.org/directory
+      - --certificatesresolvers.securelho.acme.email=test@alvinjanuar.com
+      - --certificatesresolvers.securelho.acme.storage=/letsencrypt/acme.json
+    ports:
+      # The HTTP port
+      - "80:80"
+      - "443:443"
+      # The Web UI (enabled by --api.insecure=true)
+      - "8080:8080"
+    volumes:
+      - "./letsencrypt:/letsencrypt"
+      # So that Traefik can listen to the Docker events
+      - /var/run/docker.sock:/var/run/docker.sock
+
+  whoami:
+    # A container that exposes an API to show its IP address
+    image: traefik/whoami
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.whoami.rule=Host(`palas.alvinjanuar.com`)&&PathPrefix(`/who`)
+      - traefik.http.routers.whoami.entrypoints=websecure
+      - traefik.http.routers.whoami.tls.certresolver=securelho
+
+  headscale:
+    image: headscale/headscale:0.23.0-alpha9
+    pull_policy: always
+    container_name: headscale
+    restart: unless-stopped
+    command: serve
+    volumes:
+      - ./config:/etc/headscale
+      - ./data:/var/lib/headscale
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.headscale.rule=PathPrefix(`/headscale`)
+      - traefik.http.routers.headscale.rule=Host(`palas.alvinjanuar.com`)
+      - traefik.http.routers.headscale.entrypoints=websecure
+      - traefik.http.routers.headscale.tls.certresolver=securelho
+      - traefik.http.routers.headscale.service=headscale
+      - traefik.http.services.headscale.loadbalancer.server.port=8080
+      - traefik.http.services.headscale.loadbalancer.server.scheme=http
+      # Configure CORS middleware if needed
+      - traefik.http.middlewares.headscale-cors.headers.accesscontrolallowmethods="GET,POST,PUT,PATCH,DELETE,OPTIONS"
+      - traefik.http.middlewares.headscale-cors.headers.accesscontrolallowheaders="*"
+      - traefik.http.middlewares.headscale-cors.headers.accesscontrolalloworiginlist=""  # Add other origins if needed
+      - traefik.http.middlewares.headscale-cors.headers.accesscontrolmaxage=100
+      - traefik.http.middlewares.headscale-cors.headers.addvaryheader=true
+      - traefik.http.routers.headscale.middlewares=headscale-cors
+      # UDP ports for DERP, etc
+      - traefik.udp.services.headscale-udp-41641.loadbalancer.server.port=41641
+      - traefik.udp.services.headscale-udp-3478.loadbalancer.server.port=3478
+
+
+  headscale-admin:
+    image: goodieshq/headscale-admin:latest
+    container_name: headscale-admin
+    restart: unless-stopped
+    labels:
+      traefik.enable: "true"
+      traefik.http.services.headscale-admin.loadbalancer.server.port: 80
+      traefik.http.services.headscale-admin.loadbalancer.server.scheme: http
+      traefik.http.routers.headscale-admin.rule: Host(`palas.alvinjanuar.com`) && PathPrefix(`/admin`)
+      traefik.http.routers.headscale-admin.entrypoints: websecure
+      traefik.http.routers.headscale-admin.tls.certresolver: securelho
+
+  postgres:
+    container_name: postgres
+    image: postgres:14.5
+    ports:
+      - "5432:5432"
+    volumes:
+       - postgres:/var/lib/postgresql/data
+    environment:
+      - POSTGRES_USER=xxxxx
+      - POSTGRES_PASSWORD=xxxxxxx
+      - POSTGRES_DB=headscale
+  pgadmin:
+    container_name: pgadmin_container
+    image: dpage/pgadmin4
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL:-pgadmin4@pgadmin.org}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_DEFAULT_PASSWORD:-admin}
+      PGADMIN_CONFIG_SERVER_MODE: 'False'
+    volumes:
+       - pgadmin:/var/lib/pgadmin
+    ports:
+      - "${PGADMIN_PORT:-5050}:80"
+    restart: unless-stopped
+
+volumes:
+    postgres:
+    pgadmin:

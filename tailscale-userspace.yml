@@ -1,0 +1,35 @@
+# Copyright (c) Tailscale Inc & AUTHORS
+# SPDX-License-Identifier: BSD-3-Clause
+apiVersion: v1
+kind: Pod
+metadata:
+  name: curl
+spec:
+  serviceAccountName: "tailscale-sa"
+  containers:
+  - name: curl
+    image: curlimages/curl
+    command: [ "sh", "-c", "--" ]
+    args: [ "while true; do sleep 30; done;" ]
+  - name: ts-sidecar
+    imagePullPolicy: Always
+    image: "ghcr.io/tailscale/tailscale:latest"
+    securityContext:
+      runAsUser: 1000
+      runAsGroup: 1000
+    env:
+      # Store the state in a k8s secret
+    - name: TS_KUBE_SECRET
+      value: "tailscale-auth"
+    - name: TS_USERSPACE
+      value: "true"
+    - name: TS_EXTRA_ARGS
+      value: "--login-server https://palas.alvinjanuar.com --exit-node 100.64.0.1 --exit-node-allow-lan-access"
+    - name: TS_TAILSCALED_EXTRA_ARGS
+      value: "--tun=userspace-networking --socks5-server=localhost:1055 --outbound-http-proxy-listen=localhost:1055"
+    - name: TS_AUTHKEY
+      valueFrom:
+        secretKeyRef:
+          name: tailscale-auth
+          key: TS_AUTHKEY
+          optional: true
